@@ -182,7 +182,7 @@ app/
   static/       # 本地化 swagger-ui-bundle.js / css / favicon
 scripts/demo.py # 纯标准库 HTTP 端到端演示与断言
 examples/       # 手工演示用 CSV（初始片、甲卷、乙卷、好/坏替换片）
-tests/          # 38 个测试：CSV、API 全流程、并发争用、持久化
+tests/          # 46 个测试：CSV、API 全流程、并发争用、持久化、大卷分批与快照一致性
 Dockerfile
 docker-compose.yml
 requirements.txt / requirements-dev.txt
@@ -223,6 +223,20 @@ requirements.txt / requirements-dev.txt
   WAL、外键开启。两个旧卷同时抢一份时，只有一个事务能看到 `available>=need`
   并提交，另一个等待后读到新的已提交占用，判短。即使 Compose 扩成多个
   uvicorn 进程，`BEGIN IMMEDIATE` 仍由数据库级锁保证正确。
+- **只读核对的单快照语义**：`/check`、`/availability` 以及分片/卷/回执详情等
+  需要多条 SELECT 的只读路径，都包在一个延迟 `BEGIN` 读事务里。事务在第一条
+  语句时固定快照，因此卷状态、回执号与逐行 total/occupied/available 一定来自
+  **同一个已提交状态**——即使核对进行中另一连接提交了补签，也不会出现
+  “响应显示未签、回执号为空，余量却已被扣减”的跨状态拼接。WAL 下读事务不
+  阻塞写事务，另一个连接的补签照常提交，只是本次核对看到的是开始时的快照。
+- **大卷分批，参数不超限**：按整行键的可用性 CTE 每个键占 3 个绑定参数，
+  旧版 SQLite 单条 SQL 上限只有 999、新版默认 250000。`fetch_availability`
+  读取连接的实际上限（`SQLITE_LIMIT_VARIABLE_NUMBER`）自动拆批，键先去重，
+  每批 `3*N + 预留余量` 保证不超限；所有批次在同一事务（写路径的
+  `BEGIN IMMEDIATE` 或只读路径的快照事务）内执行，读到同一快照、拼起来仍是
+  一致状态。整卷提交、`/verify`、`/recheck`、`/availability`、整片替换与删除
+  全部走这条分批路径，超过单条 SQL 参数容量也能把本次涉及的整行**全部查全**，
+  不再返回 500。
 - **只读涉及数据**：核对/替换都用 `WITH k ... VALUES ...` 仅查本次行键，
   不扫全表；只有 `GET /shards`、`/stats` 等列表/统计接口做聚合。
 
@@ -233,10 +247,10 @@ requirements.txt / requirements-dev.txt
 试跑环境：沙箱容器，Python 3.11.2，SQLite 3.40.1；依赖
 fastapi 0.165.0、uvicorn 0.54.0、python-multipart 0.0.34、httpx 0.28.1、pytest 9.2.0。
 
-### 6.1 自动化测试：39/39 通过
+### 6.1 自动化测试：46/46 通过
 
 ```
-39 passed, 1 warning in ~3s
+46 passed, 1 warning in ~48s
 ```
 
 完整逐条结果见 [`docs/test-results/pytest.txt`](docs/test-results/pytest.txt)。覆盖：
@@ -252,15 +266,26 @@ fastapi 0.165.0、uvicorn 0.54.0、python-multipart 0.0.34、httpx 0.28.1、pyte
   - 1 份热点副本、8 卷并发 → **恰好 1 卷 `issued`、7 卷 `insufficient`**，
     `receipts=1, occupied_copies=1`；
   - 3 份、10 卷并发 → **恰好 3 卷成功**，占用 3；
-  - 同一卷 8 线程重送 → **全部返回同一 receipt_id**，回执仍 1 张、占用不翻倍。
+  - 同一卷 8 线程重送 → **全部返回同一 receipt_id**，回执仍 1 张、占用不翻倍；
+- 本次修复回归（`tests/test_fixes.py`，7 个）：
+  - **90000 个不同整行**（单条 SQL 需 270000 个参数 > 上限 250000）：
+    分片替换、`/availability`、整卷提交、recheck 全部成功且**90000 行查全**；
+  - 临时把连接变量上限压到 30，验证分批器本身按每批 4 键拆分、合并不漏行；
+  - 大卷每行要 2 份、仓里只有 1 份 → 逐行列出 1000 种短缺、**不签回执、零占用**，
+    补够后 recheck 签发并占用 2000 份；
+  - 大键集换片会使已签回执缺份 → 409 逐行列出违例、**旧片保留**；
+  - 只读 `/check` 进行中另一连接提交补签 → 响应的卷状态/回执号/余量要么全是
+    补签前快照、要么全是补签后快照，**不允许跨状态拼接**；补签提交后的新连接
+    完整看到已签状态；
+  - HTTP 级大卷不再 500、争用 409 与同卷幂等重送语义保持不变。
 
 ### 6.2 真实 uvicorn + HTTP 端到端：10/10 断言通过
 
 命令：
 
 ```bash
-SOUND_DB_PATH=/tmp/finalrun/archive.db \
-  .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+SOUND_DB_PATH=/tmp/run/archive.db \
+  python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 python scripts/demo.py
 ```
 
@@ -280,21 +305,48 @@ python scripts/demo.py
 10/10 checks passed
 ```
 
-一键端点连续两次调用均 `all_checks_passed: true`
+一键端点调用 `all_checks_passed: true`
 （摘要 [`docs/test-results/demo-one-click-summary.json`](docs/test-results/demo-one-click-summary.json)，
 完整响应同目录 `demo-one-click-full.json`）。
 
-### 6.3 Docker 验证范围（如实说明）
+### 6.3 大卷真实 HTTP 核验：13/13 断言通过（在 /docs 同栈试跑）
+
+用真实 uvicorn 进程、经 HTTP 跑 90000 个不同整行（若写成单条 SQL 需 270000
+个绑定参数，超过本机 SQLite 250000 的上限），完整结果见
+[`docs/test-results/large-volume-http.json`](docs/test-results/large-volume-http.json)：
+
+```
+[PASS] admin reset
+[PASS] 大卷分片 PUT 200（90000 键，270000 参数）
+[PASS] 大卷 /availability 查全 90000 行且 sufficient
+[PASS] 大卷缺份 submit 409 且列出全部短缺
+[PASS] 短缺后无回执、零占用
+[PASS] 补副本换片 200
+[PASS] 大卷 recheck 签发，占用 180000 份
+[PASS] 破坏性换片 409，逐行列出违例
+[PASS] 拒绝后旧片保留（180000 物理行）
+[PASS] 两卷争用最后一份：A 签、B 短缺 409
+[PASS] 同卷原样重送取原回执
+[PASS] 终态：2 张回执，占用 180001 份
+[PASS] 大卷回执详情含全部 90000 行、每行 2 份
+13/13 checks passed
+```
+
+修复前同样的大卷请求在分片替换和可用性核对处直接抛
+`sqlite3.OperationalError: too many SQL variables`，经全局异常处理变成 HTTP 500；
+修复后由分批器自动拆成多条查询、在同一事务快照内合并，行数查全且状态一致。
+
+### 6.4 Docker 验证范围（如实说明）
 
 本沙箱内**没有 docker CLI，也没有 `/var/run/docker.sock`/守护进程**
-（当前本身就在容器中），因此我无法在这里真正执行 `docker compose up --build`。
+（当前本身就在容器中），因此无法在这里真正执行 `docker compose up --build`。
 已完成的相关核对：
 
 - `docker-compose.yml` 通过 PyYAML 解析，service/volume/healthcheck 结构与命令合法；
 - `Dockerfile` 使用 `python:3.11-slim`、固定 `requirements.txt`、非 root 用户、
   `/data` 持久卷与 HEALTHCHECK，启动命令就是已实测的
   `uvicorn app.main:app --host 0.0.0.0 --port 8000`；
-- 服务本身已用同一启动命令在真实 uvicorn 上完成上述全部关键操作试跑。
+- 服务本身已用同一启动命令在真实 uvicorn 上完成上述全部关键操作试跑（含大卷）。
 
 所以**首次在交付环境执行 `docker compose up --build` 仍建议盯一下构建/健康检查**，
 这是下方待办的第一条。

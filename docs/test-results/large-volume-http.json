@@ -1,0 +1,148 @@
+{
+  "base": "http://127.0.0.1:8000",
+  "large_volume_distinct_keys": 90000,
+  "sql_params_if_single_statement": 270000,
+  "sqlite_variable_limit": 250000,
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "admin reset",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "大卷分片 PUT 200（90000 键，270000 参数）",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "distinct_rows": 90000
+      }
+    },
+    {
+      "name": "大卷 /availability 查全 90000 行且 sufficient",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "rows": 90000,
+        "shortage_kinds": 0
+      }
+    },
+    {
+      "name": "大卷缺份 submit 409 且列出全部短缺",
+      "passed": true,
+      "evidence": {
+        "status": 409,
+        "code": "INSUFFICIENT_COPIES",
+        "shortage_kinds": 90000,
+        "shortage_copies": 90000
+      }
+    },
+    {
+      "name": "短缺后无回执、零占用",
+      "passed": true,
+      "evidence": {
+        "shards": 1,
+        "volumes": 1,
+        "issued_volumes": 0,
+        "short_volumes": 1,
+        "receipts": 0,
+        "shard_copy_rows": 90000,
+        "occupied_copies": 0,
+        "receipt_copies": 0
+      }
+    },
+    {
+      "name": "补副本换片 200",
+      "passed": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "大卷 recheck 签发，占用 180000 份",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "receipt_id": "RCP-5DA7F13F5E614A58",
+        "total_copies": 180000
+      }
+    },
+    {
+      "name": "破坏性换片 409，逐行列出违例",
+      "passed": true,
+      "evidence": {
+        "status": 409,
+        "code": "SHARD_COVERAGE_CONFLICT",
+        "violation_kinds": 90000
+      }
+    },
+    {
+      "name": "拒绝后旧片保留（180000 物理行）",
+      "passed": true,
+      "evidence": {
+        "physical_rows": 180000
+      }
+    },
+    {
+      "name": "两卷争用最后一份：A 签、B 短缺 409",
+      "passed": true,
+      "evidence": {
+        "a_receipt": "RCP-13CDFC4DD5D44DF1",
+        "b_status": 409,
+        "shortage": {
+          "instrument": "M-HOT",
+          "ts": 1760000000,
+          "utc": 1760000000,
+          "timestamp": 1760000000,
+          "level": 612,
+          "level_tenths_db": 612,
+          "db_tenths": 612,
+          "required": 1,
+          "need": 1,
+          "copies": 1,
+          "total": 1,
+          "in_new_repo": 1,
+          "occupied": 1,
+          "reserved_by_receipts": 1,
+          "available": 0,
+          "unoccupied": 0,
+          "short": 1,
+          "missing": 1,
+          "enough": false
+        }
+      }
+    },
+    {
+      "name": "同卷原样重送取原回执",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "receipt_id": "RCP-13CDFC4DD5D44DF1"
+      }
+    },
+    {
+      "name": "终态：2 张回执，占用 180001 份",
+      "passed": true,
+      "evidence": {
+        "shards": 2,
+        "volumes": 3,
+        "issued_volumes": 2,
+        "short_volumes": 1,
+        "receipts": 2,
+        "shard_copy_rows": 180001,
+        "occupied_copies": 180001,
+        "receipt_copies": 180001
+      }
+    },
+    {
+      "name": "大卷回执详情含全部 90000 行、每行 2 份",
+      "passed": true,
+      "evidence": {
+        "status": 200,
+        "row_kinds": 90000
+      }
+    }
+  ]
+}

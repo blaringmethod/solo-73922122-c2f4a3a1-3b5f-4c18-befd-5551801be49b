@@ -5,6 +5,13 @@
 
 提交旧卷在单个 BEGIN IMMEDIATE 事务内完成“读旧卷绑定 -> 汇总未占用份数
 -> 写回执/明细 -> 增加占用 -> 更新卷状态”，失败整体回滚。
+
+大卷与一致性：
+- 可用性汇总按连接的 SQL 变量上限自动分批（旧版 SQLite 上限仅 999，新版
+  250000），批次数再多也只查本次涉及的整行键、且都在同一事务快照内，
+  所有份数来自同一个已提交状态，不会因参数超限返回 500，也不会漏行；
+- 只读核对（/check、/availability、详情）包在 read_tx 快照事务内，卷状态、
+  回执号与逐行余量取自同一已提交状态；核对期间另一连接仍可提交补签。
 """
 
 from __future__ import annotations
@@ -15,8 +22,14 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from .csvio import CsvSummary, Row, summarize
-from .db import immediate_tx
+from .db import immediate_tx, read_tx
 from .errors import NotFoundError, ShardCoverageConflict, VolumeContentMismatch
+
+
+# 分批查询时为 SQL 里的固定参数预留的余量，避免贴边触发变量上限。
+_SQL_VAR_RESERVE = 16
+# 每个整行键在 VALUES 子句中占用的绑定参数数（instrument, ts, level）。
+_PARAMS_PER_KEY = 3
 
 
 def now_iso() -> str:
@@ -43,15 +56,24 @@ def _clean_id(value: str, field: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def fetch_availability(conn: sqlite3.Connection, keys: Iterable[Row]) -> dict[Row, dict[str, int]]:
-    """按本次涉及的整行键，汇总新仓总份数与已占用份数。
+def _variable_limit(conn: sqlite3.Connection) -> int:
+    """当前连接允许的单条 SQL 绑定参数上限（随 SQLite 版本/编译选项变化）。"""
 
-    只查传入的键（走 instrument/ts/level 索引），不扫全表。
-    """
+    return int(conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER))
 
-    keys = list(keys)
-    if not keys:
-        return {}
+
+def _keys_per_batch(conn: sqlite3.Connection) -> int:
+    """单批最多放多少个整行键，保证 3*N + 固定余量不超过参数上限。"""
+
+    limit = _variable_limit(conn)
+    capacity = max(1, (limit - _SQL_VAR_RESERVE) // _PARAMS_PER_KEY)
+    return capacity
+
+
+def _fetch_availability_chunk(
+    conn: sqlite3.Connection, keys: list[Row]
+) -> dict[Row, dict[str, int]]:
+    """对一批整行键做一条 CTE 汇总查询；调用方负责保证批大小不超参数上限。"""
 
     values_sql = ",".join("(?,?,?)" for _ in keys)
     params: list[Any] = []
@@ -86,6 +108,28 @@ def fetch_availability(conn: sqlite3.Connection, keys: Iterable[Row]) -> dict[Ro
             "occupied": occupied,
             "available": total - occupied,
         }
+    return result
+
+
+def fetch_availability(conn: sqlite3.Connection, keys: Iterable[Row]) -> dict[Row, dict[str, int]]:
+    """按本次涉及的整行键，汇总新仓总份数与已占用份数。
+
+    只查传入的键（走 instrument/ts/level 索引），不扫全表。键的数量可能超过
+    单条 SQL 的绑定参数上限（旧版 SQLite 仅 999，新版默认 250000），因此按
+    连接的实际上限自动拆成多条查询；所有批次都在调用方开启的事务内执行，
+    读到的是同一个已提交快照，拼起来仍是一致状态。
+    """
+
+    # 去重：同一整行键只需查一次，同时减少参数占用。
+    unique_keys = list(dict.fromkeys(keys))
+    if not unique_keys:
+        return {}
+
+    batch_size = _keys_per_batch(conn)
+    result: dict[Row, dict[str, int]] = {}
+    for start in range(0, len(unique_keys), batch_size):
+        chunk = unique_keys[start : start + batch_size]
+        result.update(_fetch_availability_chunk(conn, chunk))
     return result
 
 
@@ -381,32 +425,38 @@ def submit_volume(
 
 
 def check_stored_volume(conn: sqlite3.Connection, volume_id: str) -> dict[str, Any]:
-    """只读：用已保存的旧卷明细核对当前未占用份数，绝不签发或写入。"""
+    """只读：用已保存的旧卷明细核对当前未占用份数，绝不签发或写入。
+
+    卷状态/回执号与逐行份数在同一个延迟读事务（固定快照）内读取，因此即使
+    核对期间另一连接提交了补签，本响应的所有字段仍来自同一个已提交状态，
+    不会出现“状态显示未签、余量却已扣减”的跨状态拼接。
+    """
 
     volume_id = _clean_id(volume_id, "volume_id")
-    volume = conn.execute(
-        "SELECT * FROM volumes WHERE volume_id = ?", (volume_id,)
-    ).fetchone()
-    if volume is None:
-        raise NotFoundError(
-            f"找不到旧卷 {volume_id!r}，请先提交 CSV",
-            details={"volume_id": volume_id},
-        )
+    with read_tx(conn):
+        volume = conn.execute(
+            "SELECT * FROM volumes WHERE volume_id = ?", (volume_id,)
+        ).fetchone()
+        if volume is None:
+            raise NotFoundError(
+                f"找不到旧卷 {volume_id!r}，请先提交 CSV",
+                details={"volume_id": volume_id},
+            )
 
-    freq = _load_volume_freq(conn, volume_id)
-    availability = fetch_availability(conn, freq.keys())
-    items, shortages = build_check_items(None, freq, availability)
-    return {
-        "volume_id": volume_id,
-        "stored_status": volume["status"],
-        "status": volume["status"],
-        "receipt_id": volume["receipt_id"],
-        "sufficient": not shortages,
-        "shortage_kinds": len(shortages),
-        "shortages": shortages,
-        "rows": items,
-        "content_hash": volume["content_hash"],
-    }
+        freq = _load_volume_freq(conn, volume_id)
+        availability = fetch_availability(conn, freq.keys())
+        items, shortages = build_check_items(None, freq, availability)
+        return {
+            "volume_id": volume_id,
+            "stored_status": volume["status"],
+            "status": volume["status"],
+            "receipt_id": volume["receipt_id"],
+            "sufficient": not shortages,
+            "shortage_kinds": len(shortages),
+            "shortages": shortages,
+            "rows": items,
+            "content_hash": volume["content_hash"],
+        }
 
 
 def recheck_volume(conn: sqlite3.Connection, volume_id: str) -> dict[str, Any]:
@@ -723,32 +773,33 @@ def list_shards(conn: sqlite3.Connection) -> dict[str, Any]:
 
 def get_shard(conn: sqlite3.Connection, shard_id: str) -> dict[str, Any]:
     shard_id = _clean_id(shard_id, "shard_id")
-    rec = conn.execute(
-        "SELECT * FROM shards WHERE shard_id = ?", (shard_id,)
-    ).fetchone()
-    if rec is None:
-        raise NotFoundError(f"找不到分片 {shard_id!r}", details={"shard_id": shard_id})
-    rows = conn.execute(
-        """
-        SELECT instrument, ts, level, copies FROM shard_rows
-        WHERE shard_id = ? ORDER BY instrument, ts, level
-        """,
-        (shard_id,),
-    ).fetchall()
-    freq_items = [_freq_item(r) for r in rows]
-    return {
-        "shard_id": shard_id,
-        "content_hash": rec["content_hash"],
-        "header_skipped": bool(rec["header_skipped"]),
-        "physical_rows": rec["physical_rows"],
-        "distinct_rows": rec["distinct_rows"],
-        "total_copies": sum(int(r["copies"]) for r in rows),
-        "created_at": rec["created_at"],
-        "updated_at": rec["updated_at"],
-        "csv": rec["content_text"],
-        "content": rec["content_text"],
-        "rows": freq_items,
-    }
+    with read_tx(conn):
+        rec = conn.execute(
+            "SELECT * FROM shards WHERE shard_id = ?", (shard_id,)
+        ).fetchone()
+        if rec is None:
+            raise NotFoundError(f"找不到分片 {shard_id!r}", details={"shard_id": shard_id})
+        rows = conn.execute(
+            """
+            SELECT instrument, ts, level, copies FROM shard_rows
+            WHERE shard_id = ? ORDER BY instrument, ts, level
+            """,
+            (shard_id,),
+        ).fetchall()
+        freq_items = [_freq_item(r) for r in rows]
+        return {
+            "shard_id": shard_id,
+            "content_hash": rec["content_hash"],
+            "header_skipped": bool(rec["header_skipped"]),
+            "physical_rows": rec["physical_rows"],
+            "distinct_rows": rec["distinct_rows"],
+            "total_copies": sum(int(r["copies"]) for r in rows),
+            "created_at": rec["created_at"],
+            "updated_at": rec["updated_at"],
+            "csv": rec["content_text"],
+            "content": rec["content_text"],
+            "rows": freq_items,
+        }
 
 
 def list_volumes(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -773,41 +824,42 @@ def list_volumes(conn: sqlite3.Connection) -> dict[str, Any]:
 
 def get_volume(conn: sqlite3.Connection, volume_id: str) -> dict[str, Any]:
     volume_id = _clean_id(volume_id, "volume_id")
-    rec = conn.execute(
-        "SELECT * FROM volumes WHERE volume_id = ?", (volume_id,)
-    ).fetchone()
-    if rec is None:
-        raise NotFoundError(
-            f"找不到旧卷 {volume_id!r}", details={"volume_id": volume_id}
-        )
-    rows = conn.execute(
-        """
-        SELECT instrument, ts, level, copies FROM volume_rows
-        WHERE volume_id = ? ORDER BY instrument, ts, level
-        """,
-        (volume_id,),
-    ).fetchall()
-    body: dict[str, Any] = {
-        "volume_id": volume_id,
-        "status": rec["status"],
-        "content_hash": rec["content_hash"],
-        "header_skipped": bool(rec["header_skipped"]),
-        "physical_rows": rec["physical_rows"],
-        "distinct_rows": rec["distinct_rows"],
-        "receipt_id": rec["receipt_id"],
-        "first_submitted_at": rec["first_submitted_at"],
-        "last_checked_at": rec["last_checked_at"],
-        "csv": rec["content_text"],
-        "content": rec["content_text"],
-        "rows": [_freq_item(r) for r in rows],
-    }
-    if rec["receipt_id"]:
-        receipt = conn.execute(
-            "SELECT * FROM receipts WHERE receipt_id = ?", (rec["receipt_id"],)
+    with read_tx(conn):
+        rec = conn.execute(
+            "SELECT * FROM volumes WHERE volume_id = ?", (volume_id,)
         ).fetchone()
-        if receipt is not None:
-            body["receipt"] = _receipt_dict(conn, receipt)
-    return body
+        if rec is None:
+            raise NotFoundError(
+                f"找不到旧卷 {volume_id!r}", details={"volume_id": volume_id}
+            )
+        rows = conn.execute(
+            """
+            SELECT instrument, ts, level, copies FROM volume_rows
+            WHERE volume_id = ? ORDER BY instrument, ts, level
+            """,
+            (volume_id,),
+        ).fetchall()
+        body: dict[str, Any] = {
+            "volume_id": volume_id,
+            "status": rec["status"],
+            "content_hash": rec["content_hash"],
+            "header_skipped": bool(rec["header_skipped"]),
+            "physical_rows": rec["physical_rows"],
+            "distinct_rows": rec["distinct_rows"],
+            "receipt_id": rec["receipt_id"],
+            "first_submitted_at": rec["first_submitted_at"],
+            "last_checked_at": rec["last_checked_at"],
+            "csv": rec["content_text"],
+            "content": rec["content_text"],
+            "rows": [_freq_item(r) for r in rows],
+        }
+        if rec["receipt_id"]:
+            receipt = conn.execute(
+                "SELECT * FROM receipts WHERE receipt_id = ?", (rec["receipt_id"],)
+            ).fetchone()
+            if receipt is not None:
+                body["receipt"] = _receipt_dict(conn, receipt)
+        return body
 
 
 def list_receipts(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -831,42 +883,46 @@ def list_receipts(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def get_receipt(conn: sqlite3.Connection, receipt_id: str) -> dict[str, Any]:
-    rec = conn.execute(
-        "SELECT * FROM receipts WHERE receipt_id = ?", (receipt_id,)
-    ).fetchone()
-    if rec is None:
-        raise NotFoundError(
-            f"找不到回执 {receipt_id!r}", details={"receipt_id": receipt_id}
-        )
-    return _receipt_dict(conn, rec)
+    with read_tx(conn):
+        rec = conn.execute(
+            "SELECT * FROM receipts WHERE receipt_id = ?", (receipt_id,)
+        ).fetchone()
+        if rec is None:
+            raise NotFoundError(
+                f"找不到回执 {receipt_id!r}", details={"receipt_id": receipt_id}
+            )
+        return _receipt_dict(conn, rec)
 
 
 def get_receipt_by_volume(conn: sqlite3.Connection, volume_id: str) -> dict[str, Any]:
     volume_id = _clean_id(volume_id, "volume_id")
-    rec = conn.execute(
-        "SELECT receipt_id FROM volumes WHERE volume_id = ?", (volume_id,)
-    ).fetchone()
-    if rec is None:
-        raise NotFoundError(
-            f"找不到旧卷 {volume_id!r}", details={"volume_id": volume_id}
-        )
-    if not rec["receipt_id"]:
-        raise NotFoundError(
-            f"旧卷 {volume_id!r} 尚未取得回执（可能副本不足）",
-            details={"volume_id": volume_id, "receipt_id": None},
-        )
-    receipt = conn.execute(
-        "SELECT * FROM receipts WHERE receipt_id = ?", (rec["receipt_id"],)
-    ).fetchone()
-    return _receipt_dict(conn, receipt)
+    with read_tx(conn):
+        rec = conn.execute(
+            "SELECT receipt_id FROM volumes WHERE volume_id = ?", (volume_id,)
+        ).fetchone()
+        if rec is None:
+            raise NotFoundError(
+                f"找不到旧卷 {volume_id!r}", details={"volume_id": volume_id}
+            )
+        if not rec["receipt_id"]:
+            raise NotFoundError(
+                f"旧卷 {volume_id!r} 尚未取得回执（可能副本不足）",
+                details={"volume_id": volume_id, "receipt_id": None},
+            )
+        receipt = conn.execute(
+            "SELECT * FROM receipts WHERE receipt_id = ?", (rec["receipt_id"],)
+        ).fetchone()
+        return _receipt_dict(conn, receipt)
 
 
 def check_availability(
     conn: sqlite3.Connection, text: str, *, header_mode: str = "auto"
 ) -> dict[str, Any]:
     summary = summarize(text if text is not None else "", header_mode=header_mode)
-    availability = fetch_availability(conn, summary.freq.keys())
-    items, shortages = build_check_items(summary, summary.freq, availability)
+    # 分批查询在同一快照事务内完成，逐行 total/occupied/available 状态一致。
+    with read_tx(conn):
+        availability = fetch_availability(conn, summary.freq.keys())
+        items, shortages = build_check_items(summary, summary.freq, availability)
     return {
         "success": True,
         "sufficient": not shortages,

@@ -152,7 +152,14 @@ def immediate_tx(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 
 @contextmanager
 def read_tx(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
-    """一致性读事务（可选使用；单条聚合 SQL 本身也是一致的）。"""
+    """一致性只读事务：延迟 ``BEGIN`` 后的第一条 SELECT 固定一个快照。
+
+    只读核对（/check、/availability、详情查询等）可能要发多条语句（卷状态、
+    回执号、逐行余量、分批可用性查询）。包在同一个读事务里，这些语句读到的
+    是**同一个已提交状态**：即使核对期间另一连接提交了补签，本事务的快照也
+    不会变，响应里不会出现“状态显示未签、余量却已扣减”的跨状态拼接。
+    WAL 模式下读事务不阻塞写事务，另一个连接仍可正常提交。
+    """
 
     conn.execute("BEGIN")
     try:

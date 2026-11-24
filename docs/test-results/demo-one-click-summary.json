@@ -1,13 +1,4 @@
 {
-  "demo": "two-old-volumes-contend-for-one-copy",
-  "description_cn": "两卷旧档争用同一份读数的完整核验流程（本次运行使用独立行键）",
-  "ids": {
-    "run": "9a7c65c1",
-    "shard_id": "SH-DEMO-9a7c65c1",
-    "volume_a": "VOL-A-9a7c65c1",
-    "volume_b": "VOL-B-9a7c65c1",
-    "instrument": "M-DEMO-9a7c65c1"
-  },
   "all_checks_passed": true,
   "checks": {
     "a_issued_first": true,
@@ -19,42 +10,11 @@
     "good_replacement_accepted": true,
     "b_issued_after_replenishment": true
   },
-  "contested_row": {
-    "instrument": "M-DEMO-9a7c65c1",
-    "ts": 1760000000,
-    "utc": 1760000000,
-    "level": 612,
-    "level_db": 61.2
-  },
-  "b_first_shortage": {
-    "instrument": "M-DEMO-9a7c65c1",
-    "ts": 1760000000,
-    "utc": 1760000000,
-    "timestamp": 1760000000,
-    "level": 612,
-    "level_tenths_db": 612,
-    "db_tenths": 612,
-    "required": 1,
-    "need": 1,
-    "copies": 1,
-    "total": 1,
-    "in_new_repo": 1,
-    "occupied": 1,
-    "reserved_by_receipts": 1,
-    "available": 0,
-    "unoccupied": 0,
-    "short": 1,
-    "missing": 1,
-    "enough": false
-  },
-  "final_stats": {
-    "shards": 2,
-    "volumes": 4,
-    "issued_volumes": 4,
-    "short_volumes": 0,
-    "receipts": 4,
-    "shard_copy_rows": 6,
-    "occupied_copies": 6,
-    "receipt_copies": 6
+  "ids": {
+    "run": "853cced7",
+    "shard_id": "SH-DEMO-853cced7",
+    "volume_a": "VOL-A-853cced7",
+    "volume_b": "VOL-B-853cced7",
+    "instrument": "M-DEMO-853cced7"
   }
 }
