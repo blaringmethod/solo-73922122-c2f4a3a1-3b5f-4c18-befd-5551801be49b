@@ -1,0 +1,91 @@
+[health] http://127.0.0.1:8000/health -> 200 db=/tmp/finalrun/archive.db
+
+==============================================================================
+1. 放入新仓分片（争用行仅 1 份）
+-> HTTP 200
+   outcome: created
+   shard_id: SH-8e787d61
+   content_hash: sha256:0a870cde3ba0a37b1ece64d59aa2e330f8247321258bafd53de4592678eaa8f7
+   ASSERT PASS: 分片创建 200
+
+==============================================================================
+2. 甲卷提交（争用行 + 另一行）-> 签发
+-> HTTP 200
+   outcome: issued
+   receipt_id: RCP-3219FC25A8104739
+   message: 核验通过：新仓未占用副本足够，已签发清退回执并占用对应份数
+   ASSERT PASS: 甲卷签发 200
+
+==============================================================================
+3. 乙卷争用同一行 -> 409 短缺
+-> HTTP 409
+   code: INSUFFICIENT_COPIES
+   message: 有 1 种整行的新仓未占用副本不足，共缺 1 份；未签发回执、未占用份数
+   shortage: instrument=M-DEMO-8e787d61 ts=1760000000 level=612 required=1 total=1 occupied=1 available=0 short=1
+   ASSERT PASS: 乙卷短缺 409 且 total=1/occupied=1/available=0/short=1
+
+==============================================================================
+4. 甲卷原样重送 -> 同一回执
+-> HTTP 200
+   outcome: already_issued
+   receipt_id: RCP-3219FC25A8104739
+   idempotent_replay: True
+   ASSERT PASS: 重送返回原回执
+
+==============================================================================
+5. 同卷号内容不同 -> 拒绝
+-> HTTP 409
+   code: VOLUME_CONTENT_MISMATCH
+   message: 卷号 'VOL-A-8e787d61' 已绑定另一份内容；同卷只接受原样重送，内容不同已拒绝
+   ASSERT PASS: 篡改内容 409
+
+==============================================================================
+6. 破坏性换片 -> 409 保不住回执
+-> HTTP 409
+   code: SHARD_COVERAGE_CONFLICT
+   message: 分片 'SH-8e787d61' 的替换内容会使 1 种整行无法覆盖全部已签回执所需份数，已拒绝；旧分片原样保留
+   violation: instrument=M-DEMO-8e787d61 ts=1760000000 level=612 required_by_receipts=1 total_after=0 short=1
+   ASSERT PASS: 坏替换 409
+
+==============================================================================
+7. 回读分片 -> 旧内容未变
+-> HTTP 200
+   content_hash: sha256:0a870cde3ba0a37b1ece64d59aa2e330f8247321258bafd53de4592678eaa8f7
+   physical_rows: 2
+   ASSERT PASS: 拒绝后旧片不变
+
+==============================================================================
+8. 补足争用行到 2 份的替换 -> 允许
+-> HTTP 200
+   outcome: replaced
+   message: 分片已整片替换，全部已签回执所需份数仍然有着落
+   ASSERT PASS: 好替换 200
+
+==============================================================================
+9. 乙卷用已存明细重新核验 -> 签发
+-> HTTP 200
+   status: issued
+   receipt_id: RCP-A577EB2D47684306
+   ASSERT PASS: 乙卷补足后签发
+
+==============================================================================
+10. 本次争用行占用（应为 total=2/occupied=2）与全库统计
+-> HTTP 200
+stats_placeholder
+   stats: {"shards": 1, "volumes": 2, "issued_volumes": 2, "short_volumes": 0, "receipts": 2, "shard_copy_rows": 3, "occupied_copies": 3, "receipt_copies": 3}
+   contested: {"instrument": "M-DEMO-8e787d61", "ts": 1760000000, "utc": 1760000000, "timestamp": 1760000000, "level": 612, "level_tenths_db": 612, "db_tenths": 612, "required": 1, "need": 1, "copies": 1, "total": 2, "in_new_repo": 2, "occupied": 2, "reserved_by_receipts": 2, "available": 0, "unoccupied": 0, "short": 1, "missing": 1, "enough": false}
+   ASSERT PASS: 两张不同回执；本次争用行 total=2 且 occupied=2
+
+##############################################################################
+[PASS] 分片创建 200
+[PASS] 甲卷签发 200
+[PASS] 乙卷短缺 409 且 total=1/occupied=1/available=0/short=1
+[PASS] 重送返回原回执
+[PASS] 篡改内容 409
+[PASS] 坏替换 409
+[PASS] 拒绝后旧片不变
+[PASS] 好替换 200
+[PASS] 乙卷补足后签发
+[PASS] 两张不同回执；本次争用行 total=2 且 occupied=2
+
+10/10 checks passed

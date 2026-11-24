@@ -1,0 +1,29 @@
+services:
+  archive-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sound-level-archive-api:1.0.0
+    container_name: sound-level-archive-api
+    ports:
+      - "8000:8000"
+    environment:
+      # 容器内 SQLite 路径，落在命名卷 archive-data 上
+      SOUND_DB_PATH: /data/sound_archive.db
+    volumes:
+      - archive-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 6s
+
+volumes:
+  archive-data:
+    name: sound-level-archive-data

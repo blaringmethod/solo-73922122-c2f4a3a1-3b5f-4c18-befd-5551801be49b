@@ -1,0 +1,23 @@
+.git
+.gitignore
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+
+# 本地数据库与测试产物
+data
+*.db
+*.db-wal
+*.db-shm
+
+# 测试与文档不必进入运行镜像
+tests
+docs
+*.md
+
+# 编辑器/系统
+.DS_Store
+.idea
+.vscode

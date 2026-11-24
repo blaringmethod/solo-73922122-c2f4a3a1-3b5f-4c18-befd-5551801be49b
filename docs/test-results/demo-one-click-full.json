@@ -1,0 +1,520 @@
+{
+  "demo": "two-old-volumes-contend-for-one-copy",
+  "description_cn": "两卷旧档争用同一份读数的完整核验流程（本次运行使用独立行键）",
+  "ids": {
+    "run": "9a7c65c1",
+    "shard_id": "SH-DEMO-9a7c65c1",
+    "volume_a": "VOL-A-9a7c65c1",
+    "volume_b": "VOL-B-9a7c65c1",
+    "instrument": "M-DEMO-9a7c65c1"
+  },
+  "all_checks_passed": true,
+  "checks": {
+    "a_issued_first": true,
+    "b_short_on_contested_copy": true,
+    "replay_returns_same_receipt": true,
+    "tampered_content_rejected": true,
+    "bad_replacement_rejected": true,
+    "rejected_replacement_leaves_shard_unchanged": true,
+    "good_replacement_accepted": true,
+    "b_issued_after_replenishment": true
+  },
+  "contested_row": {
+    "instrument": "M-DEMO-9a7c65c1",
+    "ts": 1760000000,
+    "utc": 1760000000,
+    "level": 612,
+    "level_db": 61.2
+  },
+  "b_first_shortage": {
+    "instrument": "M-DEMO-9a7c65c1",
+    "ts": 1760000000,
+    "utc": 1760000000,
+    "timestamp": 1760000000,
+    "level": 612,
+    "level_tenths_db": 612,
+    "db_tenths": 612,
+    "required": 1,
+    "need": 1,
+    "copies": 1,
+    "total": 1,
+    "in_new_repo": 1,
+    "occupied": 1,
+    "reserved_by_receipts": 1,
+    "available": 0,
+    "unoccupied": 0,
+    "short": 1,
+    "missing": 1,
+    "enough": false
+  },
+  "steps": [
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "success": true,
+        "outcome": "created",
+        "created": true,
+        "replaced": false,
+        "shard_id": "SH-DEMO-9a7c65c1",
+        "content_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+        "header_skipped": true,
+        "physical_rows": 2,
+        "total_copies": 2,
+        "distinct_rows": 2,
+        "updated_at": "2026-11-24T16:00:21.888718Z",
+        "message": "分片已创建，全部已签回执所需份数仍然有着落"
+      },
+      "title": "1. 放入新仓分片（争用行在本片仅 1 份）"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "id": "RCP-7EEAB312A66B403E",
+        "receipt_id": "RCP-7EEAB312A66B403E",
+        "receipt_no": "RCP-7EEAB312A66B403E",
+        "volume_id": "VOL-A-9a7c65c1",
+        "receipt_type": "clean_return",
+        "kind": "clean_return",
+        "receipt_kind_cn": "清退回执",
+        "status": "issued",
+        "sufficient": true,
+        "issued_at": "2026-11-24T16:00:21.897037Z",
+        "created_at": "2026-11-24T16:00:21.897037Z",
+        "content_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+        "physical_rows": 2,
+        "total_copies": 2,
+        "rows": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "copies": 1,
+            "required": 1
+          },
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000060,
+            "utc": 1760000060,
+            "timestamp": 1760000060,
+            "level": 588,
+            "level_tenths_db": 588,
+            "db_tenths": 588,
+            "copies": 1,
+            "required": 1
+          }
+        ],
+        "outcome": "issued",
+        "idempotent_replay": false,
+        "replay": false,
+        "header_skipped": false,
+        "message": "核验通过：新仓未占用副本足够，已签发清退回执并占用对应份数"
+      },
+      "title": "2. 提交甲卷 VOL-A：核验通过并签发清退回执"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "outcome": "insufficient",
+        "status": "insufficient",
+        "sufficient": false,
+        "volume_id": "VOL-B-9a7c65c1",
+        "content_hash": "sha256:5df74dd06a67d4dfbdcb49636d086e117ebce7f31c885254aa45f61e9a3a373a",
+        "header_skipped": false,
+        "physical_rows": 1,
+        "total_copies": 1,
+        "distinct_rows": 1,
+        "checked_at": "2026-11-24T16:00:21.903933Z",
+        "shortage_kinds": 1,
+        "shortage_copies": 1,
+        "missing_copies": 1,
+        "rows": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "required": 1,
+            "need": 1,
+            "copies": 1,
+            "total": 1,
+            "in_new_repo": 1,
+            "occupied": 1,
+            "reserved_by_receipts": 1,
+            "available": 0,
+            "unoccupied": 0,
+            "short": 1,
+            "missing": 1,
+            "enough": false
+          }
+        ],
+        "shortages": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "required": 1,
+            "need": 1,
+            "copies": 1,
+            "total": 1,
+            "in_new_repo": 1,
+            "occupied": 1,
+            "reserved_by_receipts": 1,
+            "available": 0,
+            "unoccupied": 0,
+            "short": 1,
+            "missing": 1,
+            "enough": false
+          }
+        ],
+        "message": "有 1 种整行的新仓未占用副本不足，共缺 1 份；未签发回执、未占用份数"
+      },
+      "title": "3. 提交乙卷 VOL-B 争用同一读数：副本不足，列出短缺行与份数"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "id": "RCP-7EEAB312A66B403E",
+        "receipt_id": "RCP-7EEAB312A66B403E",
+        "receipt_no": "RCP-7EEAB312A66B403E",
+        "volume_id": "VOL-A-9a7c65c1",
+        "receipt_type": "clean_return",
+        "kind": "clean_return",
+        "receipt_kind_cn": "清退回执",
+        "status": "issued",
+        "sufficient": true,
+        "issued_at": "2026-11-24T16:00:21.897037Z",
+        "created_at": "2026-11-24T16:00:21.897037Z",
+        "content_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+        "physical_rows": 2,
+        "total_copies": 2,
+        "rows": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "copies": 1,
+            "required": 1
+          },
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000060,
+            "utc": 1760000060,
+            "timestamp": 1760000060,
+            "level": 588,
+            "level_tenths_db": 588,
+            "db_tenths": 588,
+            "copies": 1,
+            "required": 1
+          }
+        ],
+        "outcome": "already_issued",
+        "idempotent_replay": true,
+        "replay": true,
+        "message": "同卷原样重送：返回原清退回执，不重复占用份数"
+      },
+      "title": "4. 甲卷原样重送：返回同一张原回执，不重复占用"
+    },
+    {
+      "ok": false,
+      "status_code": 409,
+      "code": "VOLUME_CONTENT_MISMATCH",
+      "response": {
+        "success": false,
+        "ok": false,
+        "code": "VOLUME_CONTENT_MISMATCH",
+        "status": "volume_content_mismatch",
+        "message": "卷号 'VOL-A-9a7c65c1' 已绑定另一份内容；同卷只接受原样重送，内容不同已拒绝",
+        "error": {
+          "code": "VOLUME_CONTENT_MISMATCH",
+          "message": "卷号 'VOL-A-9a7c65c1' 已绑定另一份内容；同卷只接受原样重送，内容不同已拒绝",
+          "volume_id": "VOL-A-9a7c65c1",
+          "stored_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+          "submitted_hash": "sha256:d8ad2013146b0630213449c047d139de1132354dffe5b10f002c476ae7c75a93",
+          "stored_status": "issued",
+          "receipt_id": "RCP-7EEAB312A66B403E"
+        },
+        "detail": {
+          "code": "VOLUME_CONTENT_MISMATCH",
+          "message": "卷号 'VOL-A-9a7c65c1' 已绑定另一份内容；同卷只接受原样重送，内容不同已拒绝",
+          "status_code": 409,
+          "volume_id": "VOL-A-9a7c65c1",
+          "stored_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+          "submitted_hash": "sha256:d8ad2013146b0630213449c047d139de1132354dffe5b10f002c476ae7c75a93",
+          "stored_status": "issued",
+          "receipt_id": "RCP-7EEAB312A66B403E"
+        },
+        "volume_id": "VOL-A-9a7c65c1",
+        "stored_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+        "submitted_hash": "sha256:d8ad2013146b0630213449c047d139de1132354dffe5b10f002c476ae7c75a93",
+        "stored_status": "issued",
+        "receipt_id": "RCP-7EEAB312A66B403E"
+      },
+      "title": "5. 用同卷号提交内容不同的甲卷：拒绝（VOLUME_CONTENT_MISMATCH）"
+    },
+    {
+      "ok": false,
+      "status_code": 409,
+      "code": "SHARD_COVERAGE_CONFLICT",
+      "response": {
+        "success": false,
+        "ok": false,
+        "code": "SHARD_COVERAGE_CONFLICT",
+        "status": "shard_coverage_conflict",
+        "message": "分片 'SH-DEMO-9a7c65c1' 的替换内容会使 1 种整行无法覆盖全部已签回执所需份数，已拒绝；旧分片原样保留",
+        "error": {
+          "code": "SHARD_COVERAGE_CONFLICT",
+          "message": "分片 'SH-DEMO-9a7c65c1' 的替换内容会使 1 种整行无法覆盖全部已签回执所需份数，已拒绝；旧分片原样保留",
+          "shard_id": "SH-DEMO-9a7c65c1",
+          "violations": [
+            {
+              "instrument": "M-DEMO-9a7c65c1",
+              "ts": 1760000000,
+              "utc": 1760000000,
+              "timestamp": 1760000000,
+              "level": 612,
+              "level_tenths_db": 612,
+              "db_tenths": 612,
+              "required": 1,
+              "need": 1,
+              "old_shard_copies": 1,
+              "new_shard_copies": 0,
+              "current_total": 1,
+              "total": 0,
+              "total_after_replace": 0,
+              "occupied": 1,
+              "reserved_by_receipts": 1,
+              "required_by_receipts": 1,
+              "short": 1,
+              "missing": 1,
+              "enough": false,
+              "receipts": [
+                {
+                  "receipt_id": "RCP-7EEAB312A66B403E",
+                  "copies": 1,
+                  "volume_id": "VOL-A-9a7c65c1",
+                  "issued_at": "2026-11-24T16:00:21.897037Z"
+                }
+              ]
+            }
+          ],
+          "violation_kinds": 1
+        },
+        "detail": {
+          "code": "SHARD_COVERAGE_CONFLICT",
+          "message": "分片 'SH-DEMO-9a7c65c1' 的替换内容会使 1 种整行无法覆盖全部已签回执所需份数，已拒绝；旧分片原样保留",
+          "status_code": 409,
+          "shard_id": "SH-DEMO-9a7c65c1",
+          "violations": [
+            {
+              "instrument": "M-DEMO-9a7c65c1",
+              "ts": 1760000000,
+              "utc": 1760000000,
+              "timestamp": 1760000000,
+              "level": 612,
+              "level_tenths_db": 612,
+              "db_tenths": 612,
+              "required": 1,
+              "need": 1,
+              "old_shard_copies": 1,
+              "new_shard_copies": 0,
+              "current_total": 1,
+              "total": 0,
+              "total_after_replace": 0,
+              "occupied": 1,
+              "reserved_by_receipts": 1,
+              "required_by_receipts": 1,
+              "short": 1,
+              "missing": 1,
+              "enough": false,
+              "receipts": [
+                {
+                  "receipt_id": "RCP-7EEAB312A66B403E",
+                  "copies": 1,
+                  "volume_id": "VOL-A-9a7c65c1",
+                  "issued_at": "2026-11-24T16:00:21.897037Z"
+                }
+              ]
+            }
+          ],
+          "violation_kinds": 1
+        },
+        "shard_id": "SH-DEMO-9a7c65c1",
+        "violations": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "required": 1,
+            "need": 1,
+            "old_shard_copies": 1,
+            "new_shard_copies": 0,
+            "current_total": 1,
+            "total": 0,
+            "total_after_replace": 0,
+            "occupied": 1,
+            "reserved_by_receipts": 1,
+            "required_by_receipts": 1,
+            "short": 1,
+            "missing": 1,
+            "enough": false,
+            "receipts": [
+              {
+                "receipt_id": "RCP-7EEAB312A66B403E",
+                "copies": 1,
+                "volume_id": "VOL-A-9a7c65c1",
+                "issued_at": "2026-11-24T16:00:21.897037Z"
+              }
+            ]
+          }
+        ],
+        "violation_kinds": 1
+      },
+      "title": "6. 整片替换为缺少争用行的内容：因保不住甲卷回执份数被拒绝"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "shard_id": "SH-DEMO-9a7c65c1",
+        "content_hash": "sha256:c7687d3de5d52b264401c8d44d69c1d470d3bfcb40d0db6d459543073cdc3da0",
+        "header_skipped": true,
+        "physical_rows": 2,
+        "distinct_rows": 2,
+        "total_copies": 2,
+        "created_at": "2026-11-24T16:00:21.888718Z",
+        "updated_at": "2026-11-24T16:00:21.888718Z",
+        "csv": "instrument,utc,level_tenths_db\nM-DEMO-9a7c65c1,1760000000,612\nM-DEMO-9a7c65c1,1760000060,588\n",
+        "content": "instrument,utc,level_tenths_db\nM-DEMO-9a7c65c1,1760000000,612\nM-DEMO-9a7c65c1,1760000060,588\n",
+        "rows": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "copies": 1,
+            "required": 1
+          },
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000060,
+            "utc": 1760000060,
+            "timestamp": 1760000060,
+            "level": 588,
+            "level_tenths_db": 588,
+            "db_tenths": 588,
+            "copies": 1,
+            "required": 1
+          }
+        ]
+      },
+      "title": "7. 回读被拒后的分片：仍是原内容（失败保留原状）"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "success": true,
+        "outcome": "replaced",
+        "created": false,
+        "replaced": true,
+        "shard_id": "SH-DEMO-9a7c65c1",
+        "content_hash": "sha256:c62e76f34e21c1077525220816e14bbdae90d84b3fa4f25ec3cb8319e001d1a4",
+        "header_skipped": true,
+        "physical_rows": 3,
+        "total_copies": 3,
+        "distinct_rows": 2,
+        "updated_at": "2026-11-24T16:00:21.915366Z",
+        "message": "分片已整片替换，全部已签回执所需份数仍然有着落"
+      },
+      "title": "8. 整片替换为争用行有 2 份的新内容：能保住全部回执，允许"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "id": "RCP-57661B0D985F43D2",
+        "receipt_id": "RCP-57661B0D985F43D2",
+        "receipt_no": "RCP-57661B0D985F43D2",
+        "volume_id": "VOL-B-9a7c65c1",
+        "receipt_type": "clean_return",
+        "kind": "clean_return",
+        "receipt_kind_cn": "清退回执",
+        "status": "issued",
+        "sufficient": true,
+        "issued_at": "2026-11-24T16:00:21.921203Z",
+        "created_at": "2026-11-24T16:00:21.921203Z",
+        "content_hash": "sha256:5df74dd06a67d4dfbdcb49636d086e117ebce7f31c885254aa45f61e9a3a373a",
+        "physical_rows": 1,
+        "total_copies": 1,
+        "rows": [
+          {
+            "instrument": "M-DEMO-9a7c65c1",
+            "ts": 1760000000,
+            "utc": 1760000000,
+            "timestamp": 1760000000,
+            "level": 612,
+            "level_tenths_db": 612,
+            "db_tenths": 612,
+            "copies": 1,
+            "required": 1
+          }
+        ],
+        "outcome": "issued",
+        "idempotent_replay": false,
+        "message": "重新核验通过，已签发清退回执并占用对应份数"
+      },
+      "title": "9. 乙卷用已存明细重新核验：补足后通过并签发"
+    },
+    {
+      "ok": true,
+      "status_code": 200,
+      "response": {
+        "shards": 2,
+        "volumes": 4,
+        "issued_volumes": 4,
+        "short_volumes": 0,
+        "receipts": 4,
+        "shard_copy_rows": 6,
+        "occupied_copies": 6,
+        "receipt_copies": 6
+      },
+      "title": "10. 全库统计（累计值，可能含历史演示）"
+    }
+  ],
+  "final_stats": {
+    "shards": 2,
+    "volumes": 4,
+    "issued_volumes": 4,
+    "short_volumes": 0,
+    "receipts": 4,
+    "shard_copy_rows": 6,
+    "occupied_copies": 6,
+    "receipt_copies": 6
+  }
+}
